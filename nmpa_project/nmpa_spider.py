@@ -13,9 +13,8 @@ def run():
 
     output_file = "guangdong_cosmetics.csv"
     # 如果文件不存在，写入表头
-    # 更新表头，增加有效期至
     if not os.path.exists(output_file):
-        df = pd.DataFrame(columns=["产品名称", "企业名称", "注册证号", "批准日期", "有效期至", "状态", "产品执行标准全文"])
+        df = pd.DataFrame(columns=["产品名称", "企业名称", "注册证号", "批件状态", "产品执行标准全文"])
         df.to_csv(output_file, index=False, encoding='utf-8-sig')
 
     # 2. 启动 Playwright
@@ -98,167 +97,121 @@ def run():
 
             for i, row in enumerate(rows):
                 try:
-                    row_text = row.inner_text()
+                    # 策略：直接从列表页提取基本信息
+                    # 假设列表结构：序号 | 产品名称 | 注册人 | 注册证号 | 批件状态 | 详情
+                    cells = row.locator("td").all()
 
-                    if "产品名称" in row_text and "注册人" in row_text:
+                    # 简单的列索引判断，如果列数不够跳过
+                    if len(cells) < 6:
                         continue
 
-                    status = "未知"
-                    if "当前批件" in row_text:
-                        status = "当前批件"
-                    elif "历史" in row_text or "过期" in row_text:
-                        status = "历史批件"
-                    elif "注销" in row_text:
-                        status = "注销"
+                    p_name = cells[1].inner_text().strip()
+                    ent_name = cells[2].inner_text().strip()
+                    reg_no = cells[3].inner_text().strip()
+                    status = cells[4].inner_text().strip()
 
-                    if status != "当前批件":
+                    # 过滤非当前批件
+                    if "当前批件" not in status:
                         continue
 
-                    detail_btn = row.locator("text=详情").first
+                    print(f"处理: {p_name} | {status}")
+
+                    # 点击详情
+                    detail_btn = cells[-1].locator("button, a").first # 最后一列通常是详情按钮
                     if detail_btn.count() == 0:
-                        detail_btn = row.locator("button").last
+                         detail_btn = row.locator("text=详情").first
 
                     if detail_btn.count() == 0:
+                        print("  未找到详情按钮，跳过")
                         continue
 
-                    print(f"正在抓取第 {i+1} 行详情...")
-
+                    # 进入详情页
+                    print("  进入详情页获取标准信息...")
                     detail_page = None
                     try:
-                        with context.expect_page(timeout=5000) as detail_page_info:
+                        with context.expect_page(timeout=10000) as detail_page_info:
                             detail_btn.click()
                         detail_page = detail_page_info.value
+                        detail_page.wait_for_load_state("domcontentloaded")
+                        # 等待关键内容，稍微稳一点
+                        detail_page.wait_for_timeout(3000)
                     except:
-                        # 没有新页面弹出
-                        detail_page = page
-                        page.wait_for_timeout(2000)
+                        print("  详情页打开失败，跳过")
+                        continue
 
-                    detail_page.wait_for_load_state("domcontentloaded")
-
-                    # 增加等待时间，确保动态内容加载完毕
-                    # 用户反馈需要约 3 秒
-                    print("  正在等待详情页数据加载 (5秒)...")
-                    try:
-                        # 尝试等待核心文本出现，作为加载完成的标志
-                        detail_page.wait_for_selector("text=产品名称", timeout=10000)
-                    except:
-                        print("  等待'产品名称'标记超时，强制等待剩余时间...")
-
-                    detail_page.wait_for_timeout(5000)
-
-                    # --- 详情页数据提取函数 (优化版) ---
-                    def safe_get_text(keywords):
-                        """
-                        根据关键词提取对应的值。
-                        策略：找到包含关键词的表格行(tr)，然后获取该行中关键词单元格的下一个单元格。
-                        """
-                        if isinstance(keywords, str):
-                            keywords = [keywords]
-
-                        for kw in keywords:
-                            try:
-                                # 策略 1: 基于表格行查找
-                                # 找到包含关键词的行. 使用 first 匹配最靠前的
-                                target_row = detail_page.locator(f"tr:has-text('{kw}')").first
-
-                                if target_row.count() > 0:
-                                    # 获取该行所有单元格 td 或 th
-                                    cells = target_row.locator("td, th").all()
-                                    for idx, cell in enumerate(cells):
-                                        txt = cell.inner_text().strip()
-                                        # 如果单元格文本包含关键词 (模糊匹配)
-                                        if kw in txt:
-                                            # 返回下一个单元格的内容
-                                            if idx + 1 < len(cells):
-                                                val = cells[idx+1].inner_text().strip()
-                                                if val: return val
-                            except Exception:
-                                pass
-                        return ""
-
-                    # 提取关键信息
-                    # 注意：Screenshot 显示标签如 "产品名称中文"，所以关键词用 "产品名称" 即可匹配
-                    p_name = safe_get_text(["产品名称中文", "产品名称"])
-
-                    # 失败处理：如果连名字都取不到，说明大概率选择器挂了或者页面结构不对
-                    if not p_name:
-                        print(f"警告：无法提取产品名称！保存调试信息...")
-                        timestamp = int(time.time())
-                        # 保存截图
-                        s_path = f"{screenshot_dir}/error_{page_num}_{i}_{timestamp}.png"
-                        detail_page.screenshot(path=s_path)
-                        # 保存HTML
-                        h_path = f"{screenshot_dir}/error_{page_num}_{i}_{timestamp}.html"
-                        try:
-                            with open(h_path, "w", encoding="utf-8") as f:
-                                f.write(detail_page.content())
-                        except:
-                            pass
-                        print(f"  已保存截图: {s_path}")
-
-                    ent_name = safe_get_text(["注册人中文", "备案人中文", "企业名称", "注册人名称"])
-                    reg_no = safe_get_text(["注册证号", "备案编号", "批准文号"])
-                    app_date = safe_get_text(["批准日期", "备案日期", "发证日期"])
-                    valid_date = safe_get_text(["有效期至", "过期日期"])
-
-                    # --- 提取执行标准 (配方/全成分) ---
+                    # --- 提取执行标准 (PDF页面) ---
                     formula_text = "无"
                     try:
-                        # 策略：找到包含“标准”、“配方”的行，点击里面的“查看”
-                        target_row_keywords = ["产品执行的标准", "技术要求", "配方", "成分"]
+                        # 寻找“产品执行的标准”那一行的“查看”按钮
+                        target_row_keywords = ["产品执行的标准", "技术要求"]
                         found_btn = False
 
+                        view_btn = None
                         for kw in target_row_keywords:
-                            row = detail_page.locator(f"tr:has-text('{kw}')").first
-                            if row.count() > 0:
-                                # 找“查看”
-                                btn = row.locator("text=查看").first
-                                if btn.count() > 0:
-                                    print(f"  发现'{kw}'查看按钮，点击...")
-                                    btn.click()
-                                    found_btn = True
+                            row_std = detail_page.locator(f"tr:has-text('{kw}')").first
+                            if row_std.count() > 0:
+                                view_btn = row_std.locator("text=查看").first
+                                if view_btn.count() > 0:
                                     break
 
-                        if found_btn:
-                            # 等待弹窗 (el-dialog)
-                            dialog = detail_page.locator(".el-dialog__body").last
-                            try:
-                                dialog.wait_for(state="visible", timeout=5000)
-                                formula_text = dialog.inner_text().strip().replace("\n", " ")
-                                # 关闭弹窗：按 ESC 最稳妥
-                                detail_page.keyboard.press("Escape")
-                                # 等待关闭
-                                dialog.wait_for(state="hidden", timeout=3000)
-                            except:
-                                formula_text = "弹窗读取超时或失败"
+                        if view_btn and view_btn.count() > 0:
+                            print("  点击查看标准PDF...")
+
+                            # 这里不再是弹窗 dialog，而是新窗口打开 PDF 预览
+                            with context.expect_page(timeout=15000) as pdf_page_info:
+                                view_btn.click()
+
+                            pdf_page = pdf_page_info.value
+                            pdf_page.wait_for_load_state()
+                            pdf_page.wait_for_timeout(3000)
+
+                            current_url = pdf_page.url
+                            print(f"  PDF预览页URL: {current_url}")
+
+                            # 尝试提取 PDF 链接
+                            # URL 格式: .../preview-pdf.html?url=...
+                            if "url=" in current_url:
+                                try:
+                                    actual_pdf_url = current_url.split("url=")[1]
+                                    formula_text = f"PDF链接: {actual_pdf_url}"
+
+                                    # 尝试获取页面上的文本（如果有）
+                                    # 某些 PDF 预览器会把文字渲染在 div.textLayer 中
+                                    try:
+                                        text_layer = pdf_page.locator(".textLayer, #viewerContainer").first
+                                        if text_layer.count() > 0:
+                                            content = text_layer.inner_text()
+                                            if len(content) > 20:
+                                                formula_text = f"内容摘要: {content[:500]}... [完整链接]: {actual_pdf_url}"
+                                    except:
+                                        pass
+                                except:
+                                    pass
+                            else:
+                                formula_text = f"预览页URL: {current_url}"
+
+                            pdf_page.close()
                         else:
-                            formula_text = "无查看按钮"
+                            formula_text = "详情页无查看按钮"
 
                     except Exception as e:
                         formula_text = f"标准提取出错: {e}"
-
-                    print(f"  > 抓取成功: {p_name} | {ent_name}")
+                        # 截图留证
+                        detail_page.screenshot(path=f"{screenshot_dir}/error_pdf_{page_num}_{i}.png")
 
                     # 写入 CSV
                     new_row = {
                         "产品名称": p_name,
                         "企业名称": ent_name,
                         "注册证号": reg_no,
-                        "批准日期": app_date,
-                        "有效期至": valid_date,
-                        "状态": status,
+                        "批件状态": status,
                         "产品执行标准全文": formula_text
                     }
-                    # Append mode
                     df = pd.DataFrame([new_row])
                     df.to_csv(output_file, mode='a', header=False, index=False, encoding='utf-8-sig')
 
                     # 关闭详情页
-                    if detail_page != page:
-                        detail_page.close()
-                    else:
-                        if page.url != url:
-                            page.go_back()
+                    detail_page.close()
 
                     processed_count += 1
 
