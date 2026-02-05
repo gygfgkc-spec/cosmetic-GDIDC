@@ -37,20 +37,51 @@ def run():
 
         # 点击“广东省”
         print("正在尝试筛选 '广东省'...")
+        # 定义一个变量来存储当前正在操作的页面
+        # 默认是当前页面
+        current_page = page
+
         try:
-            # 策略1: 尝试点击包含“广东”的文本，通常在地图或列表筛选区
-            # 注意：如果这是一个地图，可能需要点击 path 元素或特定的 area
-            # 如果是列表，则是 text
-            page.click("text=广东", timeout=5000)
-            print("已点击 '广东'")
-            page.wait_for_timeout(3000) # 等待筛选生效
-        except Exception as e:
-            print("自动点击'广东省'失败。")
-            print("请在打开的浏览器窗口中，手动点击'广东省'（你有 15 秒时间操作）。")
-            page.wait_for_timeout(15000)
+            # 策略：如果点击广东会弹出新页面，我们需要捕获这个新页面
+            # 先尝试监听新页面事件
+            with context.expect_page(timeout=10000) as new_page_info:
+                # 尝试点击包含“广东”的文本
+                page.click("text=广东", timeout=5000)
+                print("已点击 '广东'")
+
+            # 如果成功捕获到新页面
+            new_popup = new_page_info.value
+            new_popup.wait_for_load_state()
+            print("检测到新窗口弹出，正在切换到新窗口...")
+            current_page = new_popup
+            # 等待新窗口内容加载
+            current_page.wait_for_timeout(3000)
+
+        except Exception:
+            # 如果没有弹出新页面（超时），或者点击失败
+            print("未检测到新窗口弹出，继续在当前窗口操作...")
+            # 也有可能是自动点击失败了，再次提示用户手动操作
+            # 但这里我们假设如果自动点击失败，用户会手动点
+            # 如果用户手动点了导致弹窗，Playwright 可能捕获不到（因为它在等代码里的操作）
+            # 所以这里做一个更通用的处理：
+            # 如果上面自动点击没反应，给用户时间手动点，并检查是否有新页面生成
+
+            print("如果自动点击失败，请在浏览器中手动点击'广东省'。")
+            page.wait_for_timeout(5000)
+
+            # 检查是否有新的页面（Context 里的 pages 数量）
+            if len(context.pages) > 1:
+                print("检测到多个窗口，自动切换到最新的窗口...")
+                current_page = context.pages[-1]
+                current_page.wait_for_load_state()
+            else:
+                # 仍然是当前页
+                current_page = page
 
         # 循环翻页
         page_num = 1
+        # 后面的操作全部基于 current_page
+        page = current_page
         while True:
             print(f"正在处理第 {page_num} 页...")
 
