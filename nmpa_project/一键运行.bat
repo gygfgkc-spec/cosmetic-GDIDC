@@ -38,11 +38,12 @@ echo.
 echo ==========================================
 echo      正在安装依赖 (Pandas)...
 echo ==========================================
-%PY_CMD% -m pip install -r requirements.txt
+:: 使用清华源加速 pip 下载
+%PY_CMD% -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 if %errorlevel% neq 0 (
     echo.
     echo [安装失败] 无法安装依赖。
-    echo 可能是网络问题，也可能是 pip 未正确安装。
+    echo 可能是网络问题。
     pause
     exit /b
 )
@@ -50,11 +51,15 @@ if %errorlevel% neq 0 (
 echo.
 echo ==========================================
 echo      正在安装浏览器内核...
+echo      (已切换到国内镜像源，加速下载)
 echo ==========================================
+:: 设置环境变量，使用国内镜像下载 Playwright 浏览器
+set PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/
 %PY_CMD% -m playwright install
 if %errorlevel% neq 0 (
     echo.
     echo [安装失败] 无法安装浏览器内核。
+    echo 请检查网络连接是否正常。
     pause
     exit /b
 )
