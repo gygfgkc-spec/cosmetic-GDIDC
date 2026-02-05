@@ -134,7 +134,17 @@ def run():
                         page.wait_for_timeout(2000)
 
                     detail_page.wait_for_load_state("domcontentloaded")
-                    detail_page.wait_for_timeout(1500)
+
+                    # 增加等待时间，确保动态内容加载完毕
+                    # 用户反馈需要约 3 秒
+                    print("  正在等待详情页数据加载 (5秒)...")
+                    try:
+                        # 尝试等待核心文本出现，作为加载完成的标志
+                        detail_page.wait_for_selector("text=产品名称", timeout=10000)
+                    except:
+                        print("  等待'产品名称'标记超时，强制等待剩余时间...")
+
+                    detail_page.wait_for_timeout(5000)
 
                     # --- 详情页数据提取函数 (优化版) ---
                     def safe_get_text(keywords):
