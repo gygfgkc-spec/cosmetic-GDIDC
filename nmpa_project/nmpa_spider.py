@@ -114,23 +114,41 @@ def run():
                         print("未检测到详情页新窗口，可能是当前页弹窗（暂不支持弹窗抓取，请反馈）...")
                         continue
 
+                    # --- 等待详情页内容加载 ---
                     new_page.wait_for_load_state()
-                    new_page.wait_for_timeout(1000)
+                    print("详情页已打开，等待内容渲染...")
+
+                    # 关键修改：显式等待“产品名称”或“注册人”出现，确保 AJAX 完成
+                    try:
+                        new_page.wait_for_selector("text=产品名称", timeout=10000)
+                    except:
+                        print("警告：等待 '产品名称' 文本超时，页面可能未完全加载。")
+
+                    # 额外等待，确保 DOM 稳定
+                    new_page.wait_for_timeout(2000)
 
                     # --- 详情页数据提取 ---
-                    # 这里的状态检查已移除，因为已在列表页过滤
 
                     # 提取函数
                     def get_value(label):
-                        # 尝试 td + td
+                        # 策略1：td 标签的下一个 td
                         t = new_page.locator(f"td:has-text('{label}') + td").first
                         if t.count() > 0: return t.inner_text().strip()
-                        # 尝试 div 兄弟
+
+                        # 策略2：div 标签的下一个兄弟 div
                         t = new_page.locator(f"//div[contains(text(), '{label}')]/following-sibling::div[1]").first
                         if t.count() > 0: return t.inner_text().strip()
+
+                        # 策略3：尝试更模糊的匹配，例如 label 所在的父元素的文本
+                        # (这需要小心，可能会提取到 label 本身，暂不启用以免混乱)
                         return ""
 
                     product_name = get_value("产品名称中文")
+                    # 如果仍然为空，打印页面内容片段进行调试
+                    if not product_name:
+                         print("警告: 未提取到产品名称，当前页面文本片段:")
+                         print(new_page.inner_text("body")[:200])
+
                     enterprise_name = get_value("注册人中文")
                     if not enterprise_name: enterprise_name = get_value("备案人中文")
                     reg_no = get_value("注册证号")
@@ -148,8 +166,9 @@ def run():
                              view_btn = new_page.locator("text=查看").first
 
                         if view_btn.count() > 0:
+                            print("发现'查看'按钮，尝试点击...")
                             view_btn.click()
-                            new_page.wait_for_timeout(1500)
+                            new_page.wait_for_timeout(2000) # 等待弹窗
                             # 抓取弹窗内容
                             dialog = new_page.locator(".el-dialog__body").first
                             if dialog.count() > 0:
