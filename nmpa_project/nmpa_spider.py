@@ -88,6 +88,12 @@ def run():
                     if "产品名称" in row_text and "注册人" in row_text:
                         continue # 跳过表头
 
+                    # --- NEW: 在列表页检查状态 ---
+                    if "当前批件" not in row_text:
+                        # 简单的打印，避免刷屏，只打印非当前的提示
+                        # print(f"第 {i+1} 行状态不是'当前批件'，跳过。")
+                        continue
+
                     # 查找“详情”按钮
                     # 根据图片，最后一列是详情按钮
                     detail_btn = row.locator("button:has-text('详情'), a:has-text('详情'), span:has-text('详情')").first
@@ -96,12 +102,9 @@ def run():
                         print(f"第 {i+1} 行未找到详情按钮，跳过。")
                         continue
 
-                    print(f"正在点击第 {i+1} 行详情...")
+                    print(f"正在处理第 {i+1} 行 (当前批件)...")
 
                     # 详情页通常是弹窗还是新页面？
-                    # 假设是新页面，因为之前逻辑是这样。如果不是，下面 expect_page 会超时
-                    # 许多 ElementUI 详情可能是弹窗(Dialog)，也可能是跳转
-                    # 观察之前的 trace，NMPA 详情页通常是跳转/新标签
                     try:
                         with context.expect_page(timeout=5000) as detail_page_info:
                             detail_btn.click(force=True)
@@ -115,12 +118,7 @@ def run():
                     new_page.wait_for_timeout(1000)
 
                     # --- 详情页数据提取 ---
-                    # 检查状态
-                    body_text = new_page.inner_text("body")
-                    if "当前批件" not in body_text:
-                         print("状态不是当前批件，跳过")
-                         new_page.close()
-                         continue
+                    # 这里的状态检查已移除，因为已在列表页过滤
 
                     # 提取函数
                     def get_value(label):
@@ -184,7 +182,7 @@ def run():
                     except: pass
 
             if processed_count == 0:
-                print("本页未成功抓取数据。")
+                print("本页未成功抓取数据 (可能是因为本页全是历史批件)。")
 
             # 翻页
             print("尝试翻页...")
