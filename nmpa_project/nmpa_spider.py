@@ -132,31 +132,42 @@ def run():
 
                     formula_text = "无查看按钮"
 
-                    with context.expect_page(timeout=20000) as detail_page_info:
+                    with context.expect_page(timeout=30000) as detail_page_info:
                         detail_btn.click()
 
                     detail_page = detail_page_info.value
                     detail_page.wait_for_load_state("domcontentloaded")
-                    time.sleep(2)
+
+                    # 用户提示详情页有约3秒加载时间，增加等待逻辑
+                    print("    进入详情页，等待数据加载...")
+                    try:
+                        # 显式等待包含目标文本的行出现
+                        detail_page.wait_for_selector("tr:has-text('产品执行的标准'), tr:has-text('技术要求')", timeout=10000)
+                    except:
+                        print("    等待标准行超时，尝试直接查找...")
+
+                    time.sleep(2) # 额外缓冲
 
                     try:
-                        # 寻找“产品执行的标准”
-                        std_row = detail_page.locator("tr:has-text('产品执行的标准'), tr:has-text('技术要求')").first
+                        # 寻找“产品执行的标准”或“技术要求”所在的行
+                        std_row = detail_page.locator("tr").filter(has_text="产品执行的标准").or_(detail_page.locator("tr").filter(has_text="技术要求")).first
 
                         if std_row.count() > 0:
+                            # 查找该行内的“查看”按钮 (可能是 span, a, 或 button)
                             view_btn = std_row.locator("text=查看").first
-                            if view_btn.count() > 0:
+
+                            if view_btn.count() > 0 and view_btn.is_visible():
                                 print("    点击查看标准...")
 
-                                with context.expect_page(timeout=15000) as pdf_page_info:
+                                with context.expect_page(timeout=20000) as pdf_page_info:
                                     view_btn.click()
 
                                 pdf_page = pdf_page_info.value
-                                pdf_page.wait_for_load_state()
-                                time.sleep(2)
+                                pdf_page.wait_for_load_state("domcontentloaded")
+                                time.sleep(3) # 等待PDF查看器或内容加载
 
                                 pdf_url = pdf_page.url
-                                print(f"    PDF链接: {pdf_url}")
+                                print(f"    PDF/内容页链接: {pdf_url}")
 
                                 formula_text = pdf_url
                                 if "url=" in pdf_url:
@@ -170,9 +181,11 @@ def run():
 
                                 pdf_page.close()
                             else:
-                                print("    未找到'查看'按钮")
+                                print("    该行未找到可见的'查看'按钮")
                         else:
-                            print("    未找到标准信息行")
+                            print("    页面中未找到'产品执行的标准'或'技术要求'行")
+                            # 截图以供调试
+                            detail_page.screenshot(path=f"{screenshot_dir}/detail_missing_std_{int(time.time())}.png")
 
                     except Exception as e:
                         print(f"    提取标准失败: {e}")
