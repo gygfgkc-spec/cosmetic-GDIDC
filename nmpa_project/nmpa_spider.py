@@ -46,13 +46,24 @@ def run():
                 page.screenshot(path=f"{screenshot_dir}/before_filter.png")
             else:
                 print("点击 '广东'...")
-                gd_btn.click()
-                print("等待数据刷新...")
-                time.sleep(5)
+                # 用户反馈点击筛选可能打开新标签页，捕捉新页面
+                try:
+                    with context.expect_page(timeout=5000) as new_page_info:
+                        gd_btn.click()
+
+                    new_page = new_page_info.value
+                    new_page.wait_for_load_state("domcontentloaded")
+                    print("检测到新标签页打开，切换上下文...")
+                    page = new_page
+                    page.bring_to_front()
+                except Exception:
+                    # 如果 expect_page 超时(即没有新页面打开)，说明在原页面刷新
+                    print("未检测到新标签页，继续在当前页面等待刷新...")
+                    time.sleep(5)
 
         except Exception as e:
             print(f"筛选操作异常: {e}")
-            time.sleep(10)
+            time.sleep(5)
 
         page.screenshot(path=f"{screenshot_dir}/after_filter.png")
 
@@ -216,7 +227,8 @@ def run():
             # 翻页
             print("尝试翻页...")
             try:
-                next_btn = page.locator("button.btn-next, a:has-text('下一页'), li.next").first
+                # 增加对 Element UI 右箭头按钮的支持 (class="btn-next" 或包含 el-icon-arrow-right 的按钮)
+                next_btn = page.locator("button.btn-next, a:has-text('下一页'), li.next, button:has(i.el-icon-arrow-right)").first
 
                 if next_btn.count() > 0:
                     if next_btn.get_attribute("disabled") or "disabled" in next_btn.get_attribute("class"):
